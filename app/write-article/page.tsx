@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import Header from "@/components/layout/Header";
@@ -127,50 +127,39 @@ export default function WriteArticlePage() {
     };
   }, [user, draftId, isEditMode]); // Remove formData from dependencies to prevent restarting
 
-  // Update autosave when formData changes
+  // Update autosave when formData changes with debounce
   useEffect(() => {
     if (user && (formData.title.trim() || formData.content.trim())) {
-      // Update the autosave service with current form data
-      autosaveService.updateFormData(formData);
+      const timeoutId = setTimeout(() => {
+        // Update the autosave service with current form data
+        autosaveService.updateFormData(formData);
+      }, 1000); // Debounce for 1 second
+
+      return () => clearTimeout(timeoutId);
     }
-  }, [formData.title, formData.content, user]); // More specific dependencies
+  }, [formData.title, formData.content, user?.id]); // Use user.id instead of user object
 
   // Handle form data changes
-  const handleFormDataChange = (updates: Partial<ArticleForm>) => {
-    const newFormData = { ...formData, ...updates };
-    setFormData(newFormData);
-    
-    // Save immediately if there's content
-    if (user && (newFormData.title.trim() || newFormData.content.trim())) {
-      const autosaveData = {
-        id: draftId,
-        formData: newFormData,
-        lastSaved: Date.now(),
-        isUploading: false,
-        uploadProgress: 0,
-        uploadedImageUrl: newFormData.uploadedImageUrl,
-      };
-      autosaveService.saveToLocalStorage(autosaveData);
-      setLastSaved(new Date());
-    }
-  };
+  const handleFormDataChange = useCallback((updates: Partial<ArticleForm>) => {
+    setFormData(prev => ({ ...prev, ...updates }));
+  }, []);
 
   // Handle image upload
-  const handleImageUploaded = (imageUrl: string) => {
+  const handleImageUploaded = useCallback((imageUrl: string) => {
     setFormData(prev => ({
       ...prev,
       uploadedImageUrl: imageUrl
     }));
     autosaveService.setUploadState(false, 0, imageUrl);
-  };
+  }, []);
 
-  const handleImageRemoved = () => {
+  const handleImageRemoved = useCallback(() => {
       setFormData(prev => ({
         ...prev,
       uploadedImageUrl: undefined
     }));
     autosaveService.setUploadState(false, 0, undefined);
-  };
+  }, []);
 
   // Handle draft recovery
   const handleRecoverDraft = () => {

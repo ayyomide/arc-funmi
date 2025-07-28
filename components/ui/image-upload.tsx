@@ -29,11 +29,10 @@ export default function ImageUpload({
 
   // Initialize with existing image if provided
   useEffect(() => {
-    if (existingImageUrl) {
+    if (existingImageUrl && !uploadedImageUrl) {
       setUploadedImageUrl(existingImageUrl);
-      onImageUploaded(existingImageUrl);
     }
-  }, [existingImageUrl, onImageUploaded]);
+  }, [existingImageUrl, uploadedImageUrl]);
 
   const handleImageChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
