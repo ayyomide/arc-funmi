@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import Image from "next/image";
 import { X, Upload, AlertCircle } from "lucide-react";
 
@@ -9,21 +9,31 @@ interface ImageUploadProps {
   onImageRemoved: () => void;
   disabled?: boolean;
   className?: string;
+  existingImageUrl?: string;
 }
 
 export default function ImageUpload({ 
   onImageUploaded, 
   onImageRemoved, 
   disabled = false,
-  className = ""
+  className = "",
+  existingImageUrl
 }: ImageUploadProps) {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const [uploadedImageUrl, setUploadedImageUrl] = useState<string | null>(null);
+  const [uploadedImageUrl, setUploadedImageUrl] = useState<string | null>(existingImageUrl || null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Initialize with existing image if provided
+  useEffect(() => {
+    if (existingImageUrl) {
+      setUploadedImageUrl(existingImageUrl);
+      onImageUploaded(existingImageUrl);
+    }
+  }, [existingImageUrl, onImageUploaded]);
 
   const handleImageChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -195,12 +205,12 @@ export default function ImageUpload({
       )}
 
       {/* Image Preview */}
-      {selectedImage && !isUploading && (
+      {(selectedImage || uploadedImageUrl) && !isUploading && (
         <div className="relative w-full max-w-md">
           <p className="text-white text-sm mb-2">Preview:</p>
           <div className="relative h-48 w-full rounded-lg overflow-hidden border border-gray-700">
             <Image
-              src={selectedImage}
+              src={selectedImage || uploadedImageUrl || ''}
               alt="Preview"
               fill
               className="object-cover"
@@ -215,14 +225,14 @@ export default function ImageUpload({
           </div>
           {uploadedImageUrl && (
             <p className="text-green-400 text-sm mt-2">
-              ✅ Image uploaded successfully
+              ✅ {selectedImage ? 'Image uploaded successfully' : 'Existing image'}
             </p>
           )}
         </div>
       )}
 
       {/* Upload Instructions */}
-      {!selectedImage && !isUploading && (
+      {!selectedImage && !uploadedImageUrl && !isUploading && (
         <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
           <div className="flex items-center space-x-3">
             <Upload className="w-5 h-5 text-gray-400" />

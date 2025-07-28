@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
@@ -42,21 +42,78 @@ export default function WriteArticlePage() {
   const [draftId, setDraftId] = useState<string | undefined>(undefined);
   const [showRecoveryDialog, setShowRecoveryDialog] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [articleId, setArticleId] = useState<string | undefined>(undefined);
+  const [loadingArticle, setLoadingArticle] = useState(false);
   const { user } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // Check if we're in edit mode and load article data
+  useEffect(() => {
+    const editId = searchParams.get('edit');
+    if (editId && user) {
+      setIsEditMode(true);
+      setArticleId(editId);
+      loadArticleForEdit(editId);
+    }
+  }, [searchParams, user]);
+
+  // Load article data for editing
+  const loadArticleForEdit = async (id: string) => {
+    setLoadingArticle(true);
+    try {
+      const result = await articleService.getArticleById(id);
+      if (result.error) {
+        setError(`Failed to load article: ${result.error}`);
+        return;
+      }
+      
+      if (result.data) {
+        const article = result.data;
+        
+        // Check if user is the author
+        if (article.author_id !== user?.id) {
+          setError("You can only edit your own articles");
+          router.push("/my-articles");
+          return;
+        }
+
+        // Populate form with existing article data
+        setFormData({
+          title: article.title,
+          content: article.content,
+          description: article.description,
+          category: article.category,
+          tags: article.tags || [],
+          imageFile: undefined,
+          uploadedImageUrl: article.image_url,
+        });
+        
+        console.log('📝 Loaded article for editing:', article.title);
+      }
+    } catch (error) {
+      console.error('Error loading article for edit:', error);
+      setError('Failed to load article for editing');
+    } finally {
+      setLoadingArticle(false);
+    }
+  };
 
   // Autosave functionality
   useEffect(() => {
-    // Check for recovered draft on component mount
-    const saved = autosaveService.loadFromLocalStorage();
-    if (saved && (saved.formData.title.trim() || saved.formData.content.trim())) {
-      // Auto-recover if there's content
-      setFormData(saved.formData);
-      setDraftId(saved.id);
-      setLastSaved(new Date(saved.lastSaved));
-      console.log('📂 Auto-recovered draft from localStorage');
-    } else if (autosaveService.hasRecoveredDraft()) {
-      setShowRecoveryDialog(true);
+    // Only check for recovered draft if not in edit mode
+    if (!isEditMode) {
+      const saved = autosaveService.loadFromLocalStorage();
+      if (saved && (saved.formData.title.trim() || saved.formData.content.trim())) {
+        // Auto-recover if there's content
+        setFormData(saved.formData);
+        setDraftId(saved.id);
+        setLastSaved(new Date(saved.lastSaved));
+        console.log('📂 Auto-recovered draft from localStorage');
+      } else if (autosaveService.hasRecoveredDraft()) {
+        setShowRecoveryDialog(true);
+      }
     }
 
     // Start autosave when user is authenticated
@@ -68,7 +125,7 @@ export default function WriteArticlePage() {
     return () => {
       autosaveService.stopAutosave();
     };
-  }, [user, draftId]); // Remove formData from dependencies to prevent restarting
+  }, [user, draftId, isEditMode]); // Remove formData from dependencies to prevent restarting
 
   // Update autosave when formData changes
   useEffect(() => {
@@ -157,71 +214,115 @@ export default function WriteArticlePage() {
     setLoading(true);
 
     try {
-      console.log("Publishing article...", { 
-        title: formData.title, 
-        userId: user.id,
-        category: formData.category,
-        contentLength: formData.content.length,
-        contentPreview: formData.content.substring(0, 100) + "..."
-      });
+      if (isEditMode && articleId) {
+        // Update existing article
+        console.log("Updating article...", { 
+          articleId,
+          title: formData.title, 
+          userId: user.id,
+          category: formData.category,
+          contentLength: formData.content.length,
+          contentPreview: formData.content.substring(0, 100) + "..."
+        });
 
-      // Add timeout to prevent hanging
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('Article creation timed out after 30 seconds')), 30000);
-      });
+        // Prepare update data
+        const updateData = {
+          title: formData.title,
+          content: formData.content,
+          description: formData.description,
+          category: formData.category,
+          tags: formData.tags,
+          imageFile: formData.uploadedImageUrl ? undefined : formData.imageFile,
+          imageUrl: formData.uploadedImageUrl
+        };
 
-      // Use uploaded image URL if available, otherwise use the file
-      const articleData = {
-        ...formData,
-        imageFile: formData.uploadedImageUrl ? undefined : formData.imageFile,
-        imageUrl: formData.uploadedImageUrl
-      };
-      
-      const result = await Promise.race([
-        articleService.createArticle(articleData, user.id),
-        timeoutPromise
-      ]) as { data: any; error: string | null };
-      
-      console.log("Article creation result:", result);
-
-      if (result.error) {
-        console.error("Article creation error:", result.error);
+        const result = await articleService.updateArticle(articleId, updateData, user.id);
         
-        // Run diagnostics to help identify the issue
-        console.log("Running diagnostics to identify the issue...");
-        const diagnostics = await databaseChecker.runDiagnostics(user.id);
-        
-        let errorMessage = `Failed to publish article: ${result.error}`;
-        
-        if (!diagnostics.allPassed) {
-          if (!diagnostics.userCheck.exists) {
-            errorMessage += "\n\n🔍 Diagnostic: User profile not found in database. Please sign out and sign in again.";
-          }
-          if (!diagnostics.insertionTest.success) {
-            errorMessage += "\n\n🔍 Diagnostic: Database connection issue. Please check your Supabase configuration.";
-          }
-          if (!diagnostics.relationshipTest.success) {
-            errorMessage += "\n\n🔍 Diagnostic: Database relationship issue. Please run the database setup scripts.";
-          }
+        if (result.error) {
+          console.error("Article update error:", result.error);
+          setError(`Failed to update article: ${result.error}`);
+        } else if (result.data) {
+          setSuccess("Article updated successfully! Redirecting...");
+          
+          // Clear autosave data after successful update
+          autosaveService.clearLocalStorage();
+          autosaveService.stopAutosave();
+          
+          // Add a small delay to show success message
+          setTimeout(() => {
+            router.push(`/article/${result.data.id}`);
+          }, 1500);
+        } else {
+          setError("Article updated but no data returned. Please check your articles page.");
         }
-        
-        setError(errorMessage);
-      } else if (result.data) {
-        setSuccess("Article published successfully! Redirecting...");
-        
-        // Clear autosave data after successful publish
-        autosaveService.clearLocalStorage();
-        autosaveService.stopAutosave();
-        
-        // Add a small delay to show success message
-        setTimeout(() => {
-          router.push(`/article/${result.data.id}`);
-        }, 1500);
       } else {
-        setError("Article published but no data returned. Please check your articles page.");
+        // Create new article
+        console.log("Publishing article...", { 
+          title: formData.title, 
+          userId: user.id,
+          category: formData.category,
+          contentLength: formData.content.length,
+          contentPreview: formData.content.substring(0, 100) + "..."
+        });
+
+        // Add timeout to prevent hanging
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Article creation timed out after 30 seconds')), 30000);
+        });
+
+        // Use uploaded image URL if available, otherwise use the file
+        const articleData = {
+          ...formData,
+          imageFile: formData.uploadedImageUrl ? undefined : formData.imageFile,
+          imageUrl: formData.uploadedImageUrl
+        };
+        
+        const result = await Promise.race([
+          articleService.createArticle(articleData, user.id),
+          timeoutPromise
+        ]) as { data: any; error: string | null };
+        
+        console.log("Article creation result:", result);
+
+        if (result.error) {
+          console.error("Article creation error:", result.error);
+          
+          // Run diagnostics to help identify the issue
+          console.log("Running diagnostics to identify the issue...");
+          const diagnostics = await databaseChecker.runDiagnostics(user.id);
+          
+          let errorMessage = `Failed to publish article: ${result.error}`;
+          
+          if (!diagnostics.allPassed) {
+            if (!diagnostics.userCheck.exists) {
+              errorMessage += "\n\n🔍 Diagnostic: User profile not found in database. Please sign out and sign in again.";
+            }
+            if (!diagnostics.insertionTest.success) {
+              errorMessage += "\n\n🔍 Diagnostic: Database connection issue. Please check your Supabase configuration.";
+            }
+            if (!diagnostics.relationshipTest.success) {
+              errorMessage += "\n\n🔍 Diagnostic: Database relationship issue. Please run the database setup scripts.";
+            }
+          }
+          
+          setError(errorMessage);
+        } else if (result.data) {
+          setSuccess("Article published successfully! Redirecting...");
+          
+          // Clear autosave data after successful publish
+          autosaveService.clearLocalStorage();
+          autosaveService.stopAutosave();
+          
+          // Add a small delay to show success message
+          setTimeout(() => {
+            router.push(`/article/${result.data.id}`);
+          }, 1500);
+        } else {
+          setError("Article published but no data returned. Please check your articles page.");
+        }
       }
     } catch (err) {
-      console.error("Unexpected error during article creation:", err);
+      console.error("Unexpected error during article operation:", err);
       setError(`An unexpected error occurred: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
       setLoading(false);
@@ -331,9 +432,19 @@ export default function WriteArticlePage() {
 
         {/* Form */}
         <div className="bg-gray-900 rounded-2xl p-8">
-          <h1 className="text-3xl font-bold text-white mb-8">Write New Article</h1>
+          <h1 className="text-3xl font-bold text-white mb-8">
+          {isEditMode ? "Edit Article" : "Write New Article"}
+        </h1>
           
-          <form className="space-y-6" onSubmit={handleSubmit}>
+                      {loadingArticle ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="text-center">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-yellow-500 mx-auto mb-4"></div>
+                  <p className="text-white text-lg">Loading article for editing...</p>
+                </div>
+              </div>
+            ) : (
+              <form className="space-y-6" onSubmit={handleSubmit}>
             {error && (
               <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg">
                 <div className="whitespace-pre-line text-sm">
@@ -463,6 +574,7 @@ export default function WriteArticlePage() {
                 onImageUploaded={handleImageUploaded}
                 onImageRemoved={handleImageRemoved}
                 disabled={loading}
+                existingImageUrl={formData.uploadedImageUrl}
               />
             </div>
 
@@ -480,7 +592,7 @@ export default function WriteArticlePage() {
                   </svg>
                 )}
                 <span>
-                  {loading ? "Publishing..." : success ? "Published!" : "Publish Article"}
+                  {loading ? (isEditMode ? "Updating..." : "Publishing...") : success ? (isEditMode ? "Updated!" : "Published!") : (isEditMode ? "Update Article" : "Publish Article")}
                 </span>
               </button>
               <button
@@ -492,8 +604,9 @@ export default function WriteArticlePage() {
                 Save as Draft
               </button>
             </div>
-          </form>
-        </div>
+                        </form>
+            )}
+          </div>
       </div>
 
       <Footer />
