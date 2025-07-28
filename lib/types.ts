@@ -172,6 +172,7 @@ export interface ArticleForm {
   category: 'Architecture' | 'Engineering' | 'Construction';
   tags: string[];
   imageFile?: File;
+  imageUrl?: string;
 }
 
 export interface CommentForm {

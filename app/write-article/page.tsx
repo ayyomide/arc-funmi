@@ -222,7 +222,7 @@ export default function WriteArticlePage() {
           category: formData.category,
           tags: formData.tags,
           imageFile: formData.uploadedImageUrl ? undefined : formData.imageFile,
-          imageUrl: formData.uploadedImageUrl
+          image_url: formData.uploadedImageUrl
         };
 
         const result = await articleService.updateArticle(articleId, updateData, user.id);
@@ -263,7 +263,7 @@ export default function WriteArticlePage() {
         const articleData = {
           ...formData,
           imageFile: formData.uploadedImageUrl ? undefined : formData.imageFile,
-          imageUrl: formData.uploadedImageUrl
+          image_url: formData.uploadedImageUrl
         };
         
         const result = await Promise.race([
