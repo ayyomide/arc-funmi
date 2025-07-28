@@ -1,146 +1,61 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ArrowRight, Eye, Heart, MessageCircle, Share2, Edit, ChevronLeft, ChevronRight } from "lucide-react";
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
 import Link from "next/link";
+import { articleService } from "@/lib/articles";
+import { useAuth } from "@/contexts/AuthContext";
 
 // Prevent static generation for this page since it's in protected routes
 export const dynamic = 'force-dynamic';
 
-// Sample data for articles
-const topArticles = [
-  {
-    id: 1,
-    title: "Subheading",
-    description: "Body text for whatever you'd like to expand on the main point",
-    views: "1.2k",
-    likes: "24",
-    comments: "8",
-    image: "/assets/images/article-1.jpg",
-  },
-  {
-    id: 2,
-    title: "Subheading",
-    description: "Body text for whatever you'd like to expand on the main point",
-    views: "890",
-    likes: "18",
-    comments: "5",
-    image: "/assets/images/article-2.jpg",
-  },
-  {
-    id: 3,
-    title: "Subheading",
-    description: "Body text for whatever you'd like to expand on the main point",
-    views: "2.1k",
-    likes: "45",
-    comments: "12",
-    image: "/assets/images/article-3.jpg",
-  },
-  {
-    id: 4,
-    title: "Subheading",
-    description: "Body text for whatever you'd like to expand on the main point",
-    views: "1.5k",
-    likes: "32",
-    comments: "9",
-    image: "/assets/images/article-4.jpg",
-  },
-];
-
-const featuredArticles = [
-  {
-    id: 1,
-    title: "Subheading",
-    description: "Body text for whatever you'd like to expand on the main point",
-    views: "1.2k",
-    likes: "24",
-    comments: "8",
-    image: "/assets/images/article-1.jpg",
-    type: "Article"
-  },
-  {
-    id: 2,
-    title: "Subheading",
-    description: "Body text for whatever you'd like to expand on the main point",
-    views: "890",
-    likes: "18",
-    comments: "5",
-    image: "/assets/images/article-2.jpg",
-    type: "Article"
-  },
-  {
-    id: 3,
-    title: "Subheading",
-    description: "Body text for whatever you'd like to expand on the main point",
-    views: "2.1k",
-    likes: "45",
-    comments: "12",
-    image: "/assets/images/article-3.jpg",
-    type: "Article"
-  },
-];
-
-const lastReadArticles = [
-  {
-    id: 1,
-    title: "Subheading",
-    description: "Body text for whatever you'd like to expand on the main point",
-    views: "1.2k",
-    likes: "24",
-    image: "/assets/images/article-5.jpg",
-    type: "Case Study"
-  },
-  {
-    id: 2,
-    title: "Subheading",
-    description: "Body text for whatever you'd like to expand on the main point",
-    views: "890",
-    likes: "18",
-    image: "/assets/images/article-6.jpg",
-    type: "Article"
-  },
-  {
-    id: 3,
-    title: "Subheading",
-    description: "Body text for whatever you'd like to expand on the main point",
-    views: "2.1k",
-    likes: "45",
-    image: "/assets/images/article-1.jpg",
-    type: "Case Study"
-  },
-  {
-    id: 4,
-    title: "Subheading",
-    description: "Body text for whatever you'd like to expand on the main point",
-    views: "1.5k",
-    likes: "32",
-    image: "/assets/images/article-2.jpg",
-    type: "Article"
-  },
-  {
-    id: 5,
-    title: "Subheading",
-    description: "Body text for whatever you'd like to expand on the main point",
-    views: "3.2k",
-    likes: "67",
-    image: "/assets/images/article-3.jpg",
-    type: "Case Study"
-  },
-  {
-    id: 6,
-    title: "Subheading",
-    description: "Body text for whatever you'd like to expand on the main point",
-    views: "1.8k",
-    likes: "41",
-    image: "/assets/images/article-4.jpg",
-    type: "Article"
-  },
-];
-
 export default function ForYouPage() {
   const [topArticlesScrollPosition, setTopArticlesScrollPosition] = useState(0);
+  const [featuredArticles, setFeaturedArticles] = useState<any[]>([]);
+  const [lastReadArticles, setLastReadArticles] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [loadingLastRead, setLoadingLastRead] = useState(true);
+  const [errorLastRead, setErrorLastRead] = useState<string | null>(null);
+  const { user } = useAuth();
+
+  useEffect(() => {
+    async function fetchFeatured() {
+      setLoading(true);
+      setError(null);
+      const { data, error } = await articleService.getFeaturedArticles(8);
+      if (error) {
+        setError(error);
+        setFeaturedArticles([]);
+      } else {
+        setFeaturedArticles(data || []);
+      }
+      setLoading(false);
+    }
+    fetchFeatured();
+  }, []);
+
+  useEffect(() => {
+    async function fetchLastRead() {
+      setLoadingLastRead(true);
+      setErrorLastRead(null);
+      try {
+        // Fetch the latest published articles (not featured)
+        const { articles } = await articleService.getArticles({
+          sortBy: 'latest',
+          limit: 6,
+        });
+        setLastReadArticles(articles || []);
+      } catch (err: any) {
+        setErrorLastRead(err.message || 'Failed to fetch last read articles');
+        setLastReadArticles([]);
+      }
+      setLoadingLastRead(false);
+    }
+    fetchLastRead();
+  }, []);
 
   const scrollTopArticles = (direction: 'left' | 'right') => {
     const container = document.getElementById('top-articles-container');
@@ -154,6 +69,10 @@ export default function ForYouPage() {
       setTopArticlesScrollPosition(newPosition);
     }
   };
+
+  // Split featured articles for top and featured sections
+  const topArticles = featuredArticles.slice(0, 4);
+  const restFeatured = featuredArticles.slice(0, 6);
 
   return (
     <main className="min-h-screen bg-black">
@@ -215,18 +134,22 @@ export default function ForYouPage() {
                 className="flex overflow-x-auto scrollbar-hide space-x-6 px-4 pb-4"
                 style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
               >
-                {topArticles.map((article) => (
+                {loading ? (
+                  <div className="text-gray-400 p-8">Loading...</div>
+                ) : error ? (
+                  <div className="text-red-400 p-8">{error}</div>
+                ) : topArticles.length === 0 ? (
+                  <div className="text-gray-400 p-8">No featured articles found.</div>
+                ) : (
+                  topArticles.map((article) => (
                   <div key={article.id} className="flex-none w-80">
                     <Link href={`/article/${article.id}`} className="bg-black border border-gray-800 rounded-2xl p-6 hover:transform hover:scale-105 transition-all duration-300 cursor-pointer block">
                       {/* Image */}
                       <div className="relative h-48 mb-4">
-                        <div 
-                          className="w-full h-full rounded-2xl bg-gradient-to-br from-gray-600 to-gray-800"
-                          style={{
-                            backgroundImage: `url('${article.image}')`,
-                            backgroundSize: 'cover',
-                            backgroundPosition: 'center',
-                          }}
+                        <img 
+                            src={article.image_url || "/assets/images/article-1.jpg"}
+                          alt={article.title}
+                          className="w-full h-full rounded-2xl object-contain bg-gradient-to-br from-gray-600 to-gray-800"
                         />
                       </div>
                       
@@ -242,15 +165,15 @@ export default function ForYouPage() {
                           <div className="flex items-center space-x-4">
                             <div className="flex items-center space-x-1 text-gray-500">
                               <Eye className="w-4 h-4" />
-                              <span className="text-sm">{article.views}</span>
+                                <span className="text-sm">{article.views ?? 0}</span>
                             </div>
                             <button className="flex items-center space-x-1 text-yellow-500 hover:text-yellow-400 transition-colors">
                               <Heart className="w-4 h-4" />
-                              <span className="text-sm">{article.likes}</span>
+                                <span className="text-sm">{article.likes_count ?? 0}</span>
                             </button>
                             <button className="flex items-center space-x-1 text-yellow-500 hover:text-yellow-400 transition-colors">
                               <MessageCircle className="w-4 h-4" />
-                              <span className="text-sm">{article.comments}</span>
+                                <span className="text-sm">{article.comments_count ?? 0}</span>
                             </button>
                             <button className="flex items-center space-x-1 text-yellow-500 hover:text-yellow-400 transition-colors">
                               <Share2 className="w-4 h-4" />
@@ -260,7 +183,8 @@ export default function ForYouPage() {
                       </div>
                     </Link>
                   </div>
-                ))}
+                  ))
+                )}
               </div>
             </div>
 
@@ -290,17 +214,21 @@ export default function ForYouPage() {
           {/* Content Container */}
           <div className="max-w-7xl mx-auto px-4">
             <div className="space-y-6 mb-12">
-              {featuredArticles.map((article) => (
+              {loading ? (
+                <div className="text-gray-400 p-8">Loading...</div>
+              ) : error ? (
+                <div className="text-red-400 p-8">{error}</div>
+              ) : restFeatured.length === 0 ? (
+                <div className="text-gray-400 p-8">No featured articles found.</div>
+              ) : (
+                restFeatured.map((article) => (
                 <Link key={article.id} href={`/article/${article.id}`} className="flex bg-black border border-gray-800 rounded-2xl p-6 hover:transform hover:scale-[1.02] transition-all duration-300 cursor-pointer">
                   {/* Image */}
                   <div className="relative w-32 h-24 mr-6 flex-shrink-0">
-                    <div 
-                      className="w-full h-full rounded-2xl bg-gradient-to-br from-gray-600 to-gray-800"
-                      style={{
-                        backgroundImage: `url('${article.image}')`,
-                        backgroundSize: 'cover',
-                        backgroundPosition: 'center',
-                      }}
+                    <img 
+                        src={article.image_url || "/assets/images/article-1.jpg"}
+                      alt={article.title}
+                      className="w-full h-full rounded-2xl object-contain bg-gradient-to-br from-gray-600 to-gray-800"
                     />
                   </div>
                   
@@ -316,15 +244,15 @@ export default function ForYouPage() {
                       <div className="flex items-center space-x-4">
                         <div className="flex items-center space-x-1 text-gray-500">
                           <Eye className="w-4 h-4" />
-                          <span className="text-sm">{article.views}</span>
+                            <span className="text-sm">{article.views ?? 0}</span>
                         </div>
                         <button className="flex items-center space-x-1 text-yellow-500 hover:text-yellow-400 transition-colors">
                           <Heart className="w-4 h-4" />
-                          <span className="text-sm">{article.likes}</span>
+                            <span className="text-sm">{article.likes_count ?? 0}</span>
                         </button>
                         <button className="flex items-center space-x-1 text-yellow-500 hover:text-yellow-400 transition-colors">
                           <MessageCircle className="w-4 h-4" />
-                          <span className="text-sm">{article.comments}</span>
+                            <span className="text-sm">{article.comments_count ?? 0}</span>
                         </button>
                         <button className="flex items-center space-x-1 text-yellow-500 hover:text-yellow-400 transition-colors">
                           <Share2 className="w-4 h-4" />
@@ -332,12 +260,13 @@ export default function ForYouPage() {
                       </div>
                       
                       <div className="bg-yellow-500 text-black px-3 py-1 rounded-full text-sm font-medium">
-                        {article.type}
+                          Article
                       </div>
                     </div>
                   </div>
                 </Link>
-              ))}
+                ))
+              )}
             </div>
 
             {/* See All Articles Button */}
@@ -366,50 +295,50 @@ export default function ForYouPage() {
           {/* Content Container */}
           <div className="max-w-7xl mx-auto px-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
-              {lastReadArticles.map((article) => (
+              {loadingLastRead ? (
+                <div className="text-gray-400 p-8">Loading...</div>
+              ) : errorLastRead ? (
+                <div className="text-red-400 p-8">{errorLastRead}</div>
+              ) : lastReadArticles.length === 0 ? (
+                <div className="text-gray-400 p-8">No articles found.</div>
+              ) : (
+                lastReadArticles.map((article: any) => (
                 <Link key={article.id} href={`/article/${article.id}`} className="bg-black border border-gray-800 rounded-2xl p-6 hover:transform hover:scale-105 transition-all duration-300 cursor-pointer block">
-                  {/* Image */}
-                  <div className="relative h-48 mb-4">
-                    <div 
-                      className="w-full h-full rounded-2xl bg-gradient-to-br from-gray-600 to-gray-800"
-                      style={{
-                        backgroundImage: `url('${article.image}')`,
-                        backgroundSize: 'cover',
-                        backgroundPosition: 'center',
-                      }}
-                    />
-                  </div>
-                  
+                                        {/* Image */}
+                      <div className="relative h-48 mb-4">
+                        <img 
+                        src={article.image_url || "/assets/images/article-1.jpg"}
+                          alt={article.title}
+                          className="w-full h-full rounded-2xl object-contain bg-gradient-to-br from-gray-600 to-gray-800"
+                        />
+                      </div>
                   {/* Content */}
                   <div className="space-y-4">
                     <h3 className="text-xl font-bold text-white">{article.title}</h3>
                     <p className="text-gray-400 leading-relaxed text-sm">
                       {article.description}
                     </p>
-                    
                     {/* Engagement buttons */}
                     <div className="flex items-center justify-between pt-4 border-t border-gray-800">
                       <div className="flex items-center space-x-4">
                         <div className="flex items-center space-x-1 text-gray-500">
                           <Eye className="w-4 h-4" />
-                          <span className="text-sm">{article.views}</span>
+                            <span className="text-sm">{article.views ?? 0}</span>
                         </div>
                         <button className="flex items-center space-x-1 text-yellow-500 hover:text-yellow-400 transition-colors">
                           <Heart className="w-4 h-4" />
-                          <span className="text-sm">{article.likes}</span>
+                            <span className="text-sm">{article.likes_count ?? 0}</span>
                         </button>
                       </div>
-                      
                       <div className="bg-yellow-500 text-black px-3 py-1 rounded-full text-sm font-medium">
-                        {article.type}
+                          Article
                       </div>
                     </div>
                   </div>
                 </Link>
-              ))}
+                ))
+              )}
             </div>
-
-            {/* See All Articles Button */}
             <div className="text-right">
               <Link href="/articles">
                 <button className="inline-flex items-center space-x-2 text-white hover:text-yellow-500 transition-colors group">

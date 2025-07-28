@@ -280,12 +280,10 @@ export default function ProfilePage() {
                   <div className="bg-gray-800 rounded-lg overflow-hidden hover:bg-gray-700 transition-colors">
                     {article.image_url && (
                       <div className="relative h-48 overflow-hidden">
-                        <Image
+                        <img 
                           src={article.image_url}
                           alt={article.title}
-                          width={400}
-                          height={200}
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                          className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-300"
                         />
                         <div className="absolute top-4 right-4 bg-black/50 text-white px-3 py-1 rounded-full text-sm">
                           {article.category}

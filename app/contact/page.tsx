@@ -33,13 +33,13 @@ export default function ContactPage() {
     {
       icon: Mail,
       title: "Email Us",
-      info: "hello@arcfunmi.com",
+      info: "arcfunmi@gmail.com",
       description: "Send us an email and we'll respond within 24 hours"
     },
     {
       icon: Phone,
       title: "Call Us",
-      info: "+234 123 456 7890",
+      info: "+2349024750599",
       description: "Monday to Friday from 9am to 6pm"
     },
     {
@@ -223,7 +223,7 @@ export default function ContactPage() {
               <h3 className="text-lg font-bold text-white mb-2">Do you offer advertising opportunities?</h3>
               <p className="text-gray-400">
                 Yes, we offer various advertising and partnership opportunities. Please contact us 
-                at hello@arcfunmi.com for more information about our advertising packages.
+                at arcfunmi@gmail.com for more information about our advertising packages.
               </p>
             </div>
           </div>

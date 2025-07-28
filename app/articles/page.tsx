@@ -291,7 +291,7 @@ export default function ArticlesPage() {
                         <img 
                           src={article.image_url} 
                           alt={article.title}
-                          className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                          className="w-full h-full object-contain group-hover:scale-110 transition-transform duration-300"
                         />
                         {article.is_featured && (
                           <div className="absolute top-4 left-4 bg-yellow-500 text-black px-3 py-1 rounded-full text-sm font-semibold">
@@ -361,6 +361,7 @@ export default function ArticlesPage() {
                             <Link 
                               href={`/user/${article.author_id}`}
                               className="text-white font-medium hover:text-yellow-400 transition-colors"
+                              onClick={(e) => e.stopPropagation()}
                             >
                               {article.author?.full_name || 'Anonymous'}
                             </Link>

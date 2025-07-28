@@ -33,6 +33,7 @@ import {
   ImagePlus,
   ChevronDown
 } from 'lucide-react';
+import { useRef } from 'react';
 
 interface RichTextEditorProps {
   content: string;
@@ -454,6 +455,7 @@ export default function RichTextEditor({ content, onChange, placeholder = "Start
     extensions: [
       StarterKit.configure({
         orderedList: false, // Disable default ordered list to use our custom one
+        listItem: false, // Disable default list item to avoid duplicate
       }),
       Link.configure({
         openOnClick: false,
@@ -488,6 +490,15 @@ export default function RichTextEditor({ content, onChange, placeholder = "Start
       onChange(html);
     },
   });
+
+  // Make the editor controlled: update content if prop changes
+  const lastContentRef = useRef(content);
+  useEffect(() => {
+    if (editor && content !== lastContentRef.current && content !== editor.getHTML()) {
+      editor.commands.setContent(content || "<p></p>");
+      lastContentRef.current = content;
+    }
+  }, [content, editor]);
 
   if (!isClient) {
     return (

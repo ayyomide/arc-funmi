@@ -158,14 +158,17 @@ export default function Featured() {
                 >
                   {/* Image */}
                   <div className="relative h-64 mb-4">
-                    <div 
-                      className="w-full h-full rounded-2xl bg-gradient-to-br from-gray-600 to-gray-800"
-                      style={{
-                        backgroundImage: article.image_url ? `url('${article.image_url}')` : 'none',
-                        backgroundSize: 'cover',
-                        backgroundPosition: 'center',
-                      }}
-                    />
+                    {article.image_url ? (
+                      <img 
+                        src={article.image_url}
+                        alt={article.title}
+                        className="w-full h-full rounded-2xl object-contain bg-gradient-to-br from-gray-600 to-gray-800"
+                      />
+                    ) : (
+                      <div 
+                        className="w-full h-full rounded-2xl bg-gradient-to-br from-gray-600 to-gray-800"
+                      />
+                    )}
                     <div className="absolute top-4 left-4">
                       <span className="bg-yellow-500 text-black px-3 py-1 rounded-full text-sm font-medium">
                         Featured
@@ -218,6 +221,7 @@ export default function Featured() {
                           <Link 
                             href={`/user/${article.author_id}`}
                             className="text-white font-medium hover:text-yellow-400 transition-colors"
+                            onClick={(e) => e.stopPropagation()}
                           >
                             {article.author?.full_name || 'Anonymous'}
                           </Link>

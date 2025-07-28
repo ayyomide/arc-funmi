@@ -227,12 +227,10 @@ export default function MyArticlesPage() {
               <div key={article.id} className="bg-gray-800/50 rounded-xl overflow-hidden border border-gray-700/50">
                 {article.image_url && (
                   <div className="relative h-48 overflow-hidden">
-                    <SupabaseImage
+                    <img 
                       src={article.image_url}
                       alt={article.title}
-                      width={400}
-                      height={200}
-                      className="w-full h-full"
+                      className="w-full h-full object-contain"
                     />
                     
                     {/* Draft Badge */}

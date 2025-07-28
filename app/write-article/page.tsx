@@ -1,12 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import Image from "next/image";
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
-import { ArrowLeft, X } from "lucide-react";
+import { ArrowLeft, RotateCcw, Save } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -16,51 +15,121 @@ import {
 } from "@/components/ui/select";
 import RichTextEditor from "@/components/ui/rich-text-editor";
 import HashtagInput from "@/components/ui/hashtag-input";
+import ImageUpload from "@/components/ui/image-upload";
 import { useAuth } from "@/contexts/AuthContext";
 import { articleService } from "@/lib/articles";
 import { ArticleForm } from "@/lib/types";
 import { databaseChecker } from "@/lib/database-checker";
+import { autosaveService } from "@/lib/autosave";
 
 // Prevent static generation for this page since it requires authentication
 export const dynamic = 'force-dynamic';
 
 export default function WriteArticlePage() {
-  const [formData, setFormData] = useState<ArticleForm>({
+  const [formData, setFormData] = useState<ArticleForm & { uploadedImageUrl?: string }>({
     title: "",
     content: "",
     description: "",
     category: "Architecture",
     tags: [],
     imageFile: undefined,
+    uploadedImageUrl: undefined,
   });
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState("");
   const [showPreview, setShowPreview] = useState(false);
+  const [draftId, setDraftId] = useState<string | undefined>(undefined);
+  const [showRecoveryDialog, setShowRecoveryDialog] = useState(false);
+  const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const { user } = useAuth();
   const router = useRouter();
 
-  const handleImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      setFormData({ ...formData, imageFile: file });
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setSelectedImage(e.target?.result as string);
+  // Autosave functionality
+  useEffect(() => {
+    // Check for recovered draft on component mount
+    const saved = autosaveService.loadFromLocalStorage();
+    if (saved && (saved.formData.title.trim() || saved.formData.content.trim())) {
+      // Auto-recover if there's content
+      setFormData(saved.formData);
+      setDraftId(saved.id);
+      setLastSaved(new Date(saved.lastSaved));
+      console.log('📂 Auto-recovered draft from localStorage');
+    } else if (autosaveService.hasRecoveredDraft()) {
+      setShowRecoveryDialog(true);
+    }
+
+    // Start autosave when user is authenticated
+    if (user) {
+      autosaveService.startAutosave(formData, user.id, draftId);
+    }
+
+    // Cleanup on unmount
+    return () => {
+      autosaveService.stopAutosave();
+    };
+  }, [user, draftId]); // Remove formData from dependencies to prevent restarting
+
+  // Update autosave when formData changes
+  useEffect(() => {
+    if (user && (formData.title.trim() || formData.content.trim())) {
+      // Update the autosave service with current form data
+      autosaveService.updateFormData(formData);
+    }
+  }, [formData.title, formData.content, user]); // More specific dependencies
+
+  // Handle form data changes
+  const handleFormDataChange = (updates: Partial<ArticleForm>) => {
+    const newFormData = { ...formData, ...updates };
+    setFormData(newFormData);
+    
+    // Save immediately if there's content
+    if (user && (newFormData.title.trim() || newFormData.content.trim())) {
+      const autosaveData = {
+        id: draftId,
+        formData: newFormData,
+        lastSaved: Date.now(),
+        isUploading: false,
+        uploadProgress: 0,
+        uploadedImageUrl: newFormData.uploadedImageUrl,
       };
-      reader.readAsDataURL(file);
+      autosaveService.saveToLocalStorage(autosaveData);
+      setLastSaved(new Date());
     }
   };
 
-  const removeImage = () => {
-    setSelectedImage(null);
-    setFormData({ ...formData, imageFile: undefined });
-    // Clear the file input
-    const fileInput = document.getElementById('image') as HTMLInputElement;
-    if (fileInput) {
-      fileInput.value = '';
+  // Handle image upload
+  const handleImageUploaded = (imageUrl: string) => {
+    setFormData(prev => ({
+      ...prev,
+      uploadedImageUrl: imageUrl
+    }));
+    autosaveService.setUploadState(false, 0, imageUrl);
+  };
+
+  const handleImageRemoved = () => {
+      setFormData(prev => ({
+        ...prev,
+      uploadedImageUrl: undefined
+    }));
+    autosaveService.setUploadState(false, 0, undefined);
+  };
+
+  // Handle draft recovery
+  const handleRecoverDraft = () => {
+    const saved = autosaveService.loadFromLocalStorage();
+    if (saved) {
+      setFormData(saved.formData);
+      setDraftId(saved.id);
+      setLastSaved(new Date(saved.lastSaved));
+      setShowRecoveryDialog(false);
+      autosaveService.clearLocalStorage();
     }
+  };
+
+  const handleDiscardDraft = () => {
+    autosaveService.clearLocalStorage();
+    setShowRecoveryDialog(false);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -96,7 +165,22 @@ export default function WriteArticlePage() {
         contentPreview: formData.content.substring(0, 100) + "..."
       });
 
-      const result = await articleService.createArticle(formData, user.id);
+      // Add timeout to prevent hanging
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Article creation timed out after 30 seconds')), 30000);
+      });
+
+      // Use uploaded image URL if available, otherwise use the file
+      const articleData = {
+        ...formData,
+        imageFile: formData.uploadedImageUrl ? undefined : formData.imageFile,
+        imageUrl: formData.uploadedImageUrl
+      };
+      
+      const result = await Promise.race([
+        articleService.createArticle(articleData, user.id),
+        timeoutPromise
+      ]) as { data: any; error: string | null };
       
       console.log("Article creation result:", result);
 
@@ -124,6 +208,10 @@ export default function WriteArticlePage() {
         setError(errorMessage);
       } else if (result.data) {
         setSuccess("Article published successfully! Redirecting...");
+        
+        // Clear autosave data after successful publish
+        autosaveService.clearLocalStorage();
+        autosaveService.stopAutosave();
         
         // Add a small delay to show success message
         setTimeout(() => {
@@ -175,6 +263,10 @@ export default function WriteArticlePage() {
         setSuccess("Draft saved successfully!");
         console.log("✅ Draft saved:", result.data.id);
         
+        // Clear autosave data after successful draft save
+        autosaveService.clearLocalStorage();
+        autosaveService.stopAutosave();
+        
         // Redirect to my articles page after a delay
         setTimeout(() => {
           router.push("/my-articles");
@@ -197,6 +289,45 @@ export default function WriteArticlePage() {
           <ArrowLeft className="w-5 h-5" />
           <span>Back to For You</span>
         </Link>
+
+        {/* Recovery Dialog */}
+        {showRecoveryDialog && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-gray-900 rounded-2xl p-8 max-w-md mx-4">
+              <h2 className="text-2xl font-bold text-white mb-4">Recover Draft?</h2>
+              <p className="text-gray-300 mb-6">
+                {autosaveService.getRecoveryMessage()}
+              </p>
+              <div className="flex space-x-4">
+                <button
+                  onClick={handleRecoverDraft}
+                  className="bg-yellow-500 text-black px-6 py-3 rounded-lg font-semibold hover:bg-yellow-600 transition-colors"
+                >
+                  <RotateCcw className="w-4 h-4 inline mr-2" />
+                  Recover Draft
+                </button>
+                <button
+                  onClick={handleDiscardDraft}
+                  className="bg-gray-700 text-white px-6 py-3 rounded-lg font-semibold hover:bg-gray-600 transition-colors"
+                >
+                  Start Fresh
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Autosave Status */}
+        {lastSaved && (
+          <div className="bg-gray-800 rounded-lg p-4 mb-6 border border-gray-700">
+            <div className="flex items-center space-x-2">
+              <Save className="w-4 h-4 text-green-400" />
+              <span className="text-green-400 text-sm">
+                Last saved: {lastSaved.toLocaleTimeString()}
+              </span>
+            </div>
+          </div>
+        )}
 
         {/* Form */}
         <div className="bg-gray-900 rounded-2xl p-8">
@@ -230,7 +361,7 @@ export default function WriteArticlePage() {
                 type="text"
                 id="title"
                 value={formData.title}
-                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                onChange={(e) => handleFormDataChange({ title: e.target.value })}
                 className="w-full px-4 py-3 bg-black border border-gray-700 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-500"
                 placeholder="Enter your article title"
                 required
@@ -247,7 +378,7 @@ export default function WriteArticlePage() {
                 id="description"
                 rows={3}
                 value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                onChange={(e) => handleFormDataChange({ description: e.target.value })}
                 className="w-full px-4 py-3 bg-black border border-gray-700 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-500"
                 placeholder="Write a brief description of your article"
                 required
@@ -260,7 +391,7 @@ export default function WriteArticlePage() {
               <label htmlFor="category" className="block text-white font-medium mb-2">
                 Category
               </label>
-              <Select onValueChange={(value: "Architecture" | "Engineering" | "Construction") => setFormData({ ...formData, category: value })}>
+              <Select onValueChange={(value: "Architecture" | "Engineering" | "Construction") => handleFormDataChange({ category: value })}>
                 <SelectTrigger className="w-full min-h-[56px] px-4 py-3 bg-black border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-yellow-500">
                   <SelectValue placeholder="Select a category" />
                 </SelectTrigger>
@@ -298,7 +429,7 @@ export default function WriteArticlePage() {
               ) : (
                 <RichTextEditor
                   content={formData.content}
-                  onChange={(content) => setFormData({ ...formData, content })}
+                  onChange={(content) => handleFormDataChange({ content })}
                   placeholder="Write your article content here... You can use the toolbar above to format your text with headings, bold, italic, lists, links, and more!"
                 disabled={loading}
               />
@@ -316,7 +447,7 @@ export default function WriteArticlePage() {
               </label>
               <HashtagInput
                 tags={formData.tags}
-                onChange={(tags) => setFormData({ ...formData, tags })}
+                onChange={(tags) => handleFormDataChange({ tags })}
                 placeholder="Add hashtags like #design, #sustainability, #innovation..."
                 disabled={loading}
                 maxTags={10}
@@ -325,38 +456,14 @@ export default function WriteArticlePage() {
 
             {/* Image Upload */}
             <div>
-              <label htmlFor="image" className="block text-white font-medium mb-2">
+              <label className="block text-white font-medium mb-2">
                 Featured Image
               </label>
-              <div className="space-y-4">
-                <input
-                  type="file"
-                  id="image"
-                  accept="image/*"
-                  onChange={handleImageChange}
-                  className="w-full px-4 py-3 bg-black border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-yellow-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-yellow-500 file:text-black file:font-medium hover:file:bg-yellow-600"
-                />
-                {selectedImage && (
-                  <div className="relative w-full max-w-md">
-                    <p className="text-white text-sm mb-2">Preview:</p>
-                    <div className="relative h-48 w-full rounded-lg overflow-hidden border border-gray-700">
-                      <Image
-                        src={selectedImage}
-                        alt="Preview"
-                        fill
-                        className="object-cover"
-                      />
-                      <button
-                        onClick={removeImage}
-                        className="absolute top-2 right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-1 transition-colors"
-                        type="button"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
+              <ImageUpload
+                onImageUploaded={handleImageUploaded}
+                onImageRemoved={handleImageRemoved}
+                disabled={loading}
+              />
             </div>
 
             {/* Buttons */}

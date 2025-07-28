@@ -195,13 +195,10 @@ export default function LatestArticlesPage() {
               >
                 {/* Image */}
                 <div className="relative h-48 mb-4">
-                  <div 
-                    className="w-full h-full rounded-2xl bg-gradient-to-br from-gray-600 to-gray-800"
-                    style={{
-                      backgroundImage: `url('${article.image}')`,
-                      backgroundSize: 'cover',
-                      backgroundPosition: 'center',
-                    }}
+                  <img 
+                    src={article.image}
+                    alt={article.title}
+                    className="w-full h-full rounded-2xl object-contain bg-gradient-to-br from-gray-600 to-gray-800"
                   />
                 </div>
                 

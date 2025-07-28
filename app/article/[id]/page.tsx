@@ -231,11 +231,11 @@ export default function ArticlePage() {
           {/* Article Header */}
           <div className="mb-8">
             {article.image_url && (
-              <div className="w-full h-64 md:h-96 mb-8 rounded-lg overflow-hidden">
+              <div className="w-full mb-8 rounded-lg overflow-hidden">
                 <img 
                   src={article.image_url} 
                   alt={article.title}
-                  className="w-full h-full object-cover"
+                  className="w-full h-auto max-h-96 object-contain"
                 />
               </div>
             )}

@@ -220,13 +220,10 @@ export default function EngineeringPage() {
                     <Link href={`/article/${article.id}`} className="bg-black border border-gray-800 rounded-2xl p-6 hover:transform hover:scale-105 transition-all duration-300 cursor-pointer block">
                       {/* Image */}
                       <div className="relative h-48 mb-4">
-                        <div 
-                          className="w-full h-full rounded-2xl bg-gradient-to-br from-gray-600 to-gray-800"
-                          style={{
-                            backgroundImage: `url('${article.image}')`,
-                            backgroundSize: 'cover',
-                            backgroundPosition: 'center',
-                          }}
+                        <img 
+                          src={article.image}
+                          alt={article.title}
+                          className="w-full h-full rounded-2xl object-contain bg-gradient-to-br from-gray-600 to-gray-800"
                         />
                       </div>
                       
@@ -294,13 +291,10 @@ export default function EngineeringPage() {
                 <Link key={article.id} href={`/article/${article.id}`} className="flex bg-black border border-gray-800 rounded-2xl p-6 hover:transform hover:scale-[1.02] transition-all duration-300 cursor-pointer">
                   {/* Image */}
                   <div className="relative w-32 h-24 mr-6 flex-shrink-0">
-                    <div 
-                      className="w-full h-full rounded-2xl bg-gradient-to-br from-gray-600 to-gray-800"
-                      style={{
-                        backgroundImage: `url('${article.image}')`,
-                        backgroundSize: 'cover',
-                        backgroundPosition: 'center',
-                      }}
+                    <img 
+                      src={article.image}
+                      alt={article.title}
+                      className="w-full h-full rounded-2xl object-contain bg-gradient-to-br from-gray-600 to-gray-800"
                     />
                   </div>
                   
@@ -370,13 +364,10 @@ export default function EngineeringPage() {
                 <Link key={article.id} href={`/article/${article.id}`} className="bg-black border border-gray-800 rounded-2xl p-6 hover:transform hover:scale-105 transition-all duration-300 cursor-pointer block">
                   {/* Image */}
                   <div className="relative h-48 mb-4">
-                    <div 
-                      className="w-full h-full rounded-2xl bg-gradient-to-br from-gray-600 to-gray-800"
-                      style={{
-                        backgroundImage: `url('${article.image}')`,
-                        backgroundSize: 'cover',
-                        backgroundPosition: 'center',
-                      }}
+                    <img 
+                      src={article.image}
+                      alt={article.title}
+                      className="w-full h-full rounded-2xl object-contain bg-gradient-to-br from-gray-600 to-gray-800"
                     />
                   </div>
                   

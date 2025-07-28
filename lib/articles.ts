@@ -14,11 +14,18 @@ export const articleService = {
       
       // First, verify the user exists in the users table
       try {
-        const { data: userExists, error: userCheckError } = await supabase
+        // Add timeout to user check
+        const userCheckPromise = supabase
           .from('users')
           .select('id')
           .eq('id', authorId)
           .single();
+        
+        const userCheckTimeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('User check timed out after 10 seconds')), 10000);
+        });
+        
+        const { data: userExists, error: userCheckError } = await Promise.race([userCheckPromise, userCheckTimeoutPromise]);
 
         console.log('🔍 Step 2.2: User check response:', { userExists, userCheckError });
 
@@ -76,27 +83,47 @@ export const articleService = {
 
       let imageUrl = null;
 
-      // Upload image if provided
-      if (data.imageFile) {
+      // Use pre-uploaded image URL or upload image if provided
+      if ((data as any).imageUrl) {
+        console.log('📷 Step 3: Using pre-uploaded image...');
+        imageUrl = (data as any).imageUrl;
+        console.log('✅ Step 3 complete: Using pre-uploaded image:', imageUrl);
+      } else if (data.imageFile) {
         console.log('📷 Step 3: Uploading image...');
         const fileExt = data.imageFile.name.split('.').pop();
         const fileName = `${Math.random().toString(36).substring(2)}-${Date.now()}.${fileExt}`;
         
-        const { error: uploadError } = await supabase.storage
-          .from('article-images')
-          .upload(fileName, data.imageFile);
+        try {
+          // Add timeout to image upload
+          const uploadPromise = supabase.storage
+            .from('article-images')
+            .upload(fileName, data.imageFile);
+          
+          const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => reject(new Error('Image upload timed out after 15 seconds')), 15000);
+          });
+          
+          const { error: uploadError } = await Promise.race([uploadPromise, timeoutPromise]);
 
-        if (uploadError) {
-          console.error('❌ Image upload error:', uploadError);
-          return { data: null, error: `Image upload failed: ${uploadError.message || 'Storage bucket may not exist'}` };
+          if (uploadError) {
+            console.error('❌ Image upload error:', uploadError);
+            console.log('⚠️ Continuing without image upload...');
+            // Continue without image instead of failing completely
+            imageUrl = null;
+          } else {
+            const { data: { publicUrl } } = supabase.storage
+              .from('article-images')
+              .getPublicUrl(fileName);
+
+            imageUrl = publicUrl;
+            console.log('✅ Step 3 complete: Image uploaded successfully:', imageUrl);
+          }
+        } catch (uploadTimeoutError) {
+          console.error('❌ Image upload timeout:', uploadTimeoutError);
+          console.log('⚠️ Continuing without image upload...');
+          // Continue without image instead of failing completely
+          imageUrl = null;
         }
-
-        const { data: { publicUrl } } = supabase.storage
-          .from('article-images')
-          .getPublicUrl(fileName);
-
-        imageUrl = publicUrl;
-        console.log('✅ Step 3 complete: Image uploaded successfully:', imageUrl);
       } else {
         console.log('⏭️ Step 3 skipped: No image to upload');
       }
@@ -112,8 +139,8 @@ export const articleService = {
         isDraft: isDraft
       });
       
-      // Insert article with better error handling
-      const { data: article, error } = await supabase
+      // Insert article with better error handling and timeout
+      const insertPromise = supabase
         .from('articles')
         .insert({
           title: data.title,
@@ -128,6 +155,12 @@ export const articleService = {
         })
         .select('*')
         .single();
+      
+      const insertTimeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Article insertion timed out after 15 seconds')), 15000);
+      });
+      
+      const { data: article, error } = await Promise.race([insertPromise, insertTimeoutPromise]);
 
       if (error) {
         console.error('❌ Article insertion error:', error);
