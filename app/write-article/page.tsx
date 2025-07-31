@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import Header from "@/components/layout/Header";
@@ -25,7 +25,7 @@ import { autosaveService } from "@/lib/autosave";
 // Prevent static generation for this page since it requires authentication
 export const dynamic = 'force-dynamic';
 
-export default function WriteArticlePage() {
+function WriteArticleContent() {
   const [formData, setFormData] = useState<ArticleForm & { uploadedImageUrl?: string }>({
     title: "",
     content: "",
@@ -716,5 +716,20 @@ export default function WriteArticlePage() {
 
       <Footer />
     </main>
+  );
+}
+
+export default function WriteArticlePage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        <div className="text-white text-center">
+          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-yellow-500 mx-auto mb-4"></div>
+          <p className="text-lg">Loading article editor...</p>
+        </div>
+      </div>
+    }>
+      <WriteArticleContent />
+    </Suspense>
   );
 }
