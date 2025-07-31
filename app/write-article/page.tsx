@@ -45,6 +45,8 @@ export default function WriteArticlePage() {
   const [isEditMode, setIsEditMode] = useState(false);
   const [articleId, setArticleId] = useState<string | undefined>(undefined);
   const [loadingArticle, setLoadingArticle] = useState(false);
+  const [autoRetryEnabled, setAutoRetryEnabled] = useState(true);
+  const [autoRetryCountdown, setAutoRetryCountdown] = useState<number | null>(null);
   const { user } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -58,7 +60,7 @@ export default function WriteArticlePage() {
       loadArticleForEdit(editId);
     }
   }, [searchParams, user]);
-
+      
   // Load article data for editing
   const loadArticleForEdit = async (id: string) => {
     setLoadingArticle(true);
@@ -116,9 +118,21 @@ export default function WriteArticlePage() {
       }
     }
 
-    // Start autosave when user is authenticated
+    // Start autosave (localStorage works for all users, Supabase only for authenticated)
     if (user) {
       autosaveService.startAutosave(formData, user.id, draftId);
+    } else {
+      // For non-authenticated users, still save to localStorage
+      if (formData.title.trim() || formData.content.trim()) {
+        const autosaveData = {
+          formData,
+          lastSaved: Date.now(),
+          isUploading: false,
+          uploadProgress: 0,
+          uploadedImageUrl: undefined,
+        };
+        autosaveService.saveToLocalStorage(autosaveData);
+      }
     }
 
     // Cleanup on unmount
@@ -129,19 +143,23 @@ export default function WriteArticlePage() {
 
   // Update autosave when formData changes with debounce
   useEffect(() => {
-    if (user && (formData.title.trim() || formData.content.trim())) {
+    if (formData.title.trim() || formData.content.trim()) {
       const timeoutId = setTimeout(() => {
         // Update the autosave service with current form data
         autosaveService.updateFormData(formData);
+        // Update lastSaved state for UI feedback
+        setLastSaved(new Date());
+        console.log('💾 Autosave triggered:', { title: formData.title, contentLength: formData.content.length });
       }, 1000); // Debounce for 1 second
 
       return () => clearTimeout(timeoutId);
     }
-  }, [formData.title, formData.content, user?.id]); // Use user.id instead of user object
+  }, [formData.title, formData.content]); // Remove user dependency to work for all users
 
   // Handle form data changes
   const handleFormDataChange = useCallback((updates: Partial<ArticleForm>) => {
     setFormData(prev => ({ ...prev, ...updates }));
+    console.log('📝 Form data changed:', updates);
   }, []);
 
   // Handle image upload
@@ -157,10 +175,10 @@ export default function WriteArticlePage() {
       setFormData(prev => ({
         ...prev,
       uploadedImageUrl: undefined
-    }));
+      }));
     autosaveService.setUploadState(false, 0, undefined);
   }, []);
-
+      
   // Handle draft recovery
   const handleRecoverDraft = () => {
     const saved = autosaveService.loadFromLocalStorage();
@@ -246,68 +264,144 @@ export default function WriteArticlePage() {
         }
       } else {
         // Create new article
-        console.log("Publishing article...", { 
-          title: formData.title, 
-          userId: user.id,
-          category: formData.category,
-          contentLength: formData.content.length,
-          contentPreview: formData.content.substring(0, 100) + "..."
-        });
+      console.log("Publishing article...", { 
+        title: formData.title, 
+        userId: user.id,
+        category: formData.category,
+        contentLength: formData.content.length,
+        contentPreview: formData.content.substring(0, 100) + "..."
+      });
 
-        // Add timeout to prevent hanging
-        const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => reject(new Error('Article creation timed out after 30 seconds')), 30000);
-        });
+      // Use uploaded image URL if available, otherwise use the file
+      const articleData = {
+        ...formData,
+        imageFile: formData.uploadedImageUrl ? undefined : formData.imageFile,
+        image_url: formData.uploadedImageUrl
+      };
+      
+      // Add timeout to prevent hanging with proper error handling
+      const timeoutPromise = new Promise<{ data: null; error: string }>((_, reject) => {
+        setTimeout(() => reject(new Error('Article creation timed out after 30 seconds')), 30000);
+      });
 
-        // Use uploaded image URL if available, otherwise use the file
-        const articleData = {
-          ...formData,
-          imageFile: formData.uploadedImageUrl ? undefined : formData.imageFile,
-          image_url: formData.uploadedImageUrl
-        };
-        
-        const result = await Promise.race([
-          articleService.createArticle(articleData, user.id),
-          timeoutPromise
-        ]) as { data: any; error: string | null };
-        
-        console.log("Article creation result:", result);
-
-        if (result.error) {
-          console.error("Article creation error:", result.error);
+      // Retry logic for article creation
+      let result: { data: any; error: string | null } | null = null;
+      let retryCount = 0;
+      const maxRetries = 2;
+      
+      while (retryCount < maxRetries && !result?.data) {
+        try {
+          console.log(`🔄 Article creation attempt ${retryCount + 1} of ${maxRetries}...`);
           
-          // Run diagnostics to help identify the issue
-          console.log("Running diagnostics to identify the issue...");
-          const diagnostics = await databaseChecker.runDiagnostics(user.id);
+          result = await Promise.race([
+            articleService.createArticle(articleData, user.id),
+            timeoutPromise
+          ]);
           
-          let errorMessage = `Failed to publish article: ${result.error}`;
+          if (result?.data) {
+            console.log(`✅ Article created successfully on attempt ${retryCount + 1}`);
+            break;
+          }
+        } catch (timeoutError) {
+          console.error(`❌ Article creation attempt ${retryCount + 1} failed:`, timeoutError);
           
-          if (!diagnostics.allPassed) {
-            if (!diagnostics.userCheck.exists) {
-              errorMessage += "\n\n🔍 Diagnostic: User profile not found in database. Please sign out and sign in again.";
-            }
-            if (!diagnostics.insertionTest.success) {
-              errorMessage += "\n\n🔍 Diagnostic: Database connection issue. Please check your Supabase configuration.";
-            }
-            if (!diagnostics.relationshipTest.success) {
-              errorMessage += "\n\n🔍 Diagnostic: Database relationship issue. Please run the database setup scripts.";
-            }
+          // Check if this is the final attempt and auto-retry is enabled
+          if (retryCount === maxRetries - 1 && autoRetryEnabled) {
+            console.log("🔄 Final attempt failed, auto-retry will refresh page in 3 seconds...");
+            setError(`Article publishing failed after ${maxRetries} attempts.\n\n🔄 Auto-retry enabled: Page will refresh in 3 seconds to try again. Your work is saved!`);
+            
+            // Start countdown
+            setAutoRetryCountdown(3);
+            const countdownInterval = setInterval(() => {
+              setAutoRetryCountdown(prev => {
+                if (prev === null || prev <= 1) {
+                  clearInterval(countdownInterval);
+                  console.log("🔄 Refreshing page for auto-retry...");
+                  window.location.reload();
+                  return null;
+                }
+                return prev - 1;
+              });
+            }, 1000);
+            
+            return;
           }
           
-          setError(errorMessage);
-        } else if (result.data) {
-          setSuccess("Article published successfully! Redirecting...");
+          if (retryCount < maxRetries - 1) {
+            console.log('⏳ Waiting 3 seconds before retry...');
+            await new Promise(resolve => setTimeout(resolve, 3000));
+          } else {
+            result = { data: null, error: 'Article creation failed after multiple attempts. Please try again.' };
+          }
+        }
+        
+        retryCount++;
+      }
+      
+      // Ensure result is not null
+      if (!result) {
+        result = { data: null, error: 'Article creation failed - no result returned.' };
+      }
+      
+      console.log("Article creation result:", result);
+
+      if (result.error) {
+        console.error("Article creation error:", result.error);
+        
+        // Check if auto-retry is enabled and this is a timeout/network error
+        if (autoRetryEnabled && (result.error.includes('timed out') || result.error.includes('network') || result.error.includes('connection'))) {
+          console.log("🔄 Auto-retry enabled for timeout/network error. Starting countdown...");
+          setError(`Article publishing failed: ${result.error}\n\n🔄 Auto-retry enabled: Page will refresh in 3 seconds to try again. Your work is saved!`);
+          
+          // Start countdown
+          setAutoRetryCountdown(3);
+          const countdownInterval = setInterval(() => {
+            setAutoRetryCountdown(prev => {
+              if (prev === null || prev <= 1) {
+                clearInterval(countdownInterval);
+                console.log("🔄 Refreshing page for auto-retry...");
+                window.location.reload();
+                return null;
+              }
+              return prev - 1;
+            });
+          }, 1000);
+          
+          return;
+        }
+        
+        // Run diagnostics to help identify the issue
+        console.log("Running diagnostics to identify the issue...");
+        const diagnostics = await databaseChecker.runDiagnostics(user.id);
+        
+        let errorMessage = `Failed to publish article: ${result.error}`;
+        
+        if (!diagnostics.allPassed) {
+          if (!diagnostics.userCheck.exists) {
+            errorMessage += "\n\n🔍 Diagnostic: User profile not found in database. Please sign out and sign in again.";
+          }
+          if (!diagnostics.insertionTest.success) {
+            errorMessage += "\n\n🔍 Diagnostic: Database connection issue. Please check your Supabase configuration.";
+          }
+          if (!diagnostics.relationshipTest.success) {
+            errorMessage += "\n\n🔍 Diagnostic: Database relationship issue. Please run the database setup scripts.";
+          }
+        }
+        
+        setError(errorMessage);
+      } else if (result.data) {
+        setSuccess("Article published successfully! Redirecting...");
           
           // Clear autosave data after successful publish
           autosaveService.clearLocalStorage();
           autosaveService.stopAutosave();
-          
-          // Add a small delay to show success message
-          setTimeout(() => {
-            router.push(`/article/${result.data.id}`);
-          }, 1500);
-        } else {
-          setError("Article published but no data returned. Please check your articles page.");
+        
+        // Add a small delay to show success message
+        setTimeout(() => {
+          router.push(`/article/${result.data.id}`);
+        }, 1500);
+      } else {
+        setError("Article published but no data returned. Please check your articles page.");
         }
       }
     } catch (err) {
@@ -408,13 +502,30 @@ export default function WriteArticlePage() {
         )}
 
         {/* Autosave Status */}
-        {lastSaved && (
+        {(formData.title.trim() || formData.content.trim()) && (
           <div className="bg-gray-800 rounded-lg p-4 mb-6 border border-gray-700">
-            <div className="flex items-center space-x-2">
-              <Save className="w-4 h-4 text-green-400" />
-              <span className="text-green-400 text-sm">
-                Last saved: {lastSaved.toLocaleTimeString()}
-              </span>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <Save className="w-4 h-4 text-green-400" />
+                <span className="text-green-400 text-sm">
+                  {lastSaved ? `Last saved: ${lastSaved.toLocaleTimeString()}` : 'Autosave enabled - your work is being saved automatically'}
+                </span>
+              </div>
+              
+              {/* Auto-retry toggle */}
+              <div className="flex items-center space-x-2">
+                <label className="text-gray-300 text-sm">Auto-retry:</label>
+                <button
+                  onClick={() => setAutoRetryEnabled(!autoRetryEnabled)}
+                  className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                    autoRetryEnabled 
+                      ? 'bg-green-600 text-white' 
+                      : 'bg-gray-600 text-gray-300'
+                  }`}
+                >
+                  {autoRetryEnabled ? 'ON' : 'OFF'}
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -433,12 +544,17 @@ export default function WriteArticlePage() {
                 </div>
               </div>
             ) : (
-              <form className="space-y-6" onSubmit={handleSubmit}>
+          <form className="space-y-6" onSubmit={handleSubmit}>
             {error && (
               <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg">
                 <div className="whitespace-pre-line text-sm">
                   {error}
                 </div>
+                {autoRetryCountdown !== null && (
+                  <div className="mt-2 text-sm font-medium">
+                    🔄 Auto-retry in {autoRetryCountdown} second{autoRetryCountdown !== 1 ? 's' : ''}...
+                  </div>
+                )}
               </div>
             )}
             {success && (
@@ -593,9 +709,9 @@ export default function WriteArticlePage() {
                 Save as Draft
               </button>
             </div>
-                        </form>
+          </form>
             )}
-          </div>
+        </div>
       </div>
 
       <Footer />

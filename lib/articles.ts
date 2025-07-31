@@ -46,28 +46,37 @@ export const articleService = {
             console.log('🔧 Step 2.4: Auth user data:', authUser);
             
             if (authUser) {
-              const { data: newUser, error: createError } = await supabase
-                .from('users')
-                .insert({
-                  id: authUser.id,
-                  email: authUser.email || '',
-                  full_name: authUser.user_metadata?.full_name || authUser.email?.split('@')[0] || 'User',
-                  profession: authUser.user_metadata?.profession || undefined,
-                })
-                .select('*')
-                .single();
+              try {
+                const { data: newUser, error: createError } = await supabase
+                  .from('users')
+                  .insert({
+                    id: authUser.id,
+                    email: authUser.email || '',
+                    full_name: authUser.user_metadata?.full_name || authUser.email?.split('@')[0] || 'User',
+                    profession: authUser.user_metadata?.profession || undefined,
+                  })
+                  .select('*')
+                  .single();
+                  
+                console.log('🔧 Step 2.5: User creation result:', { newUser, createError });
                 
-              console.log('🔧 Step 2.5: User creation result:', { newUser, createError });
-              
-              if (createError) {
-                return { data: null, error: `Failed to create user profile: ${createError.message}` };
+                if (createError) {
+                  console.error('❌ User creation failed:', createError);
+                  // Try to continue anyway - the user might already exist from a race condition
+                  console.log('⚠️ Continuing with article creation despite user creation error...');
+                } else {
+                  console.log('✅ Step 2.6: User profile created successfully');
+                }
+              } catch (userCreateError) {
+                console.error('❌ Unexpected error creating user:', userCreateError);
+                // Continue anyway - the user might already exist
+                console.log('⚠️ Continuing with article creation despite user creation error...');
               }
-              
-              console.log('✅ Step 2.6: User profile created successfully');
             } else {
               return { data: null, error: 'No authenticated user found. Please log in again.' };
             }
           } else {
+            console.error('❌ Database connection error:', userCheckError);
             return { data: null, error: `Database connection error: ${userCheckError.message}` };
           }
         } else if (userExists) {
@@ -93,36 +102,56 @@ export const articleService = {
         const fileExt = data.imageFile.name.split('.').pop();
         const fileName = `${Math.random().toString(36).substring(2)}-${Date.now()}.${fileExt}`;
         
-        try {
-          // Add timeout to image upload
-          const uploadPromise = supabase.storage
-            .from('article-images')
-            .upload(fileName, data.imageFile);
-          
-          const timeoutPromise = new Promise((_, reject) => {
-            setTimeout(() => reject(new Error('Image upload timed out after 15 seconds')), 15000);
-          });
-          
-          const { error: uploadError } = await Promise.race([uploadPromise, timeoutPromise]);
-
-          if (uploadError) {
-            console.error('❌ Image upload error:', uploadError);
-            console.log('⚠️ Continuing without image upload...');
-            // Continue without image instead of failing completely
-            imageUrl = null;
-          } else {
-            const { data: { publicUrl } } = supabase.storage
+        let imageUploadRetryCount = 0;
+        const maxImageRetries = 2;
+        
+        while (imageUploadRetryCount < maxImageRetries) {
+          try {
+            console.log(`🔄 Image upload attempt ${imageUploadRetryCount + 1} of ${maxImageRetries}...`);
+            
+            // Add timeout to image upload
+            const uploadPromise = supabase.storage
               .from('article-images')
-              .getPublicUrl(fileName);
+              .upload(fileName, data.imageFile);
+            
+            const timeoutPromise = new Promise((_, reject) => {
+              setTimeout(() => reject(new Error('Image upload timed out after 15 seconds')), 15000);
+            });
+            
+            const { error: uploadError } = await Promise.race([uploadPromise, timeoutPromise]);
 
-            imageUrl = publicUrl;
-            console.log('✅ Step 3 complete: Image uploaded successfully:', imageUrl);
+            if (uploadError) {
+              console.error(`❌ Image upload error (attempt ${imageUploadRetryCount + 1}):`, uploadError);
+              
+              if (imageUploadRetryCount < maxImageRetries - 1) {
+                console.log('⏳ Waiting 1 second before retrying image upload...');
+                await new Promise(resolve => setTimeout(resolve, 1000));
+              } else {
+                console.log('⚠️ All image upload attempts failed, continuing without image...');
+                imageUrl = null;
+              }
+            } else {
+              const { data: { publicUrl } } = supabase.storage
+                .from('article-images')
+                .getPublicUrl(fileName);
+
+              imageUrl = publicUrl;
+              console.log('✅ Step 3 complete: Image uploaded successfully:', imageUrl);
+              break;
+            }
+          } catch (uploadTimeoutError) {
+            console.error(`❌ Image upload timeout (attempt ${imageUploadRetryCount + 1}):`, uploadTimeoutError);
+            
+            if (imageUploadRetryCount < maxImageRetries - 1) {
+              console.log('⏳ Waiting 1 second before retrying image upload...');
+              await new Promise(resolve => setTimeout(resolve, 1000));
+            } else {
+              console.log('⚠️ All image upload attempts failed, continuing without image...');
+              imageUrl = null;
+            }
           }
-        } catch (uploadTimeoutError) {
-          console.error('❌ Image upload timeout:', uploadTimeoutError);
-          console.log('⚠️ Continuing without image upload...');
-          // Continue without image instead of failing completely
-          imageUrl = null;
+          
+          imageUploadRetryCount++;
         }
       } else {
         console.log('⏭️ Step 3 skipped: No image to upload');
@@ -139,28 +168,57 @@ export const articleService = {
         isDraft: isDraft
       });
       
-      // Insert article with better error handling and timeout
-      const insertPromise = supabase
-        .from('articles')
-        .insert({
-          title: data.title,
-          content: data.content,
-          description: data.description,
-          category: data.category,
-          tags: data.tags,
-          image_url: imageUrl,
-          author_id: authorId,
-          is_published: !isDraft,
-          published_at: isDraft ? null : new Date().toISOString(),
-        })
-        .select('*')
-        .single();
+      // Insert article with retry logic for transient failures
+      let article = null;
+      let error = null;
+      let retryCount = 0;
+      const maxRetries = 3;
       
-      const insertTimeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('Article insertion timed out after 15 seconds')), 15000);
-      });
-      
-      const { data: article, error } = await Promise.race([insertPromise, insertTimeoutPromise]);
+      while (retryCount < maxRetries && !article) {
+        try {
+          console.log(`🔄 Attempt ${retryCount + 1} of ${maxRetries} to insert article...`);
+          
+          const insertPromise = supabase
+            .from('articles')
+            .insert({
+              title: data.title,
+              content: data.content,
+              description: data.description,
+              category: data.category,
+              tags: data.tags,
+              image_url: imageUrl,
+              author_id: authorId,
+              is_published: !isDraft,
+              published_at: isDraft ? null : new Date().toISOString(),
+            })
+            .select('*')
+            .single();
+          
+          const insertTimeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => reject(new Error('Article insertion timed out after 15 seconds')), 15000);
+          });
+          
+          const result = await Promise.race([insertPromise, insertTimeoutPromise]);
+          article = result.data;
+          error = result.error;
+          
+          if (article) {
+            console.log(`✅ Article inserted successfully on attempt ${retryCount + 1}`);
+            break;
+          }
+        } catch (insertError) {
+          console.error(`❌ Insert attempt ${retryCount + 1} failed:`, insertError);
+          error = insertError;
+          
+          // If it's a timeout or network error, retry
+          if (retryCount < maxRetries - 1) {
+            console.log(`⏳ Waiting 2 seconds before retry...`);
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          }
+        }
+        
+        retryCount++;
+      }
 
       if (error) {
         console.error('❌ Article insertion error:', error);

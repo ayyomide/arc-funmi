@@ -221,6 +221,18 @@ export class AutosaveService {
         uploadedImageUrl: this.uploadedImageUrl,
       };
       this.saveToLocalStorage(updatedData);
+      console.log('💾 Updated existing autosave data');
+    } else {
+      // Create new autosave data if none exists
+      const newData: AutosaveData = {
+        formData,
+        lastSaved: Date.now(),
+        isUploading: this.isUploading,
+        uploadProgress: this.uploadProgress,
+        uploadedImageUrl: this.uploadedImageUrl,
+      };
+      this.saveToLocalStorage(newData);
+      console.log('💾 Created new autosave data');
     }
   }
 

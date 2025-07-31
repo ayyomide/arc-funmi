@@ -46,6 +46,10 @@ export default function Header() {
             height={40}
             priority
           />
+          {/* Beta Tag */}
+          <div className="bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full shadow-md transform rotate-12">
+            BETA
+          </div>
         </Link>
 
         {/* Search Bar - Hidden on mobile */}
